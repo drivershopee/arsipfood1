@@ -1542,7 +1542,7 @@
                             if (promotionModal.classList.contains('active')) {
                                 promotionModal.classList.remove('active');
                             }
-                        }, 99999000);
+                        }, 5000);
                     }
                 }, 3000);
                 
@@ -1573,6 +1573,7 @@
                 const today = new Date();
                 const endDate = new Date(today);
                 endDate.setMonth(endDate.getMonth() + 1);
+                const resetMonth = today.toISOString().slice(0, 7); // YYYY-MM
                 
                 await subscriptionRef.set({
                     userId: currentUser.uid,
@@ -1583,6 +1584,7 @@
                     kuotaGambar: 5,
                     sisaArsip: 15,
                     sisaGambar: 5,
+                    resetMonth: resetMonth, // Tambahkan field untuk melacak bulan terakhir reset
                     createdBy: currentUser.uid,
                     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1598,17 +1600,45 @@
             const subscriptionDoc = await subscriptionRef.get();
             
             if (subscriptionDoc.exists) {
-                userSubscription = subscriptionDoc.data();
+                let subscription = subscriptionDoc.data();
+                const today = new Date();
+                const todayStr = today.toISOString().split('T')[0];
+                const currentMonth = today.toISOString().slice(0, 7); // YYYY-MM
                 
-                // Check if subscription has expired
-                const today = new Date().toISOString().split('T')[0];
-                if (userSubscription.berakhir < today) {
-                    // Subscription expired
-                    showNotification('Paket Anda telah berakhir. Silakan perpanjang.', 'error');
-                    userSubscription.sisaArsip = 0;
-                    userSubscription.sisaGambar = 0;
+                // Reset otomatis untuk paket Gratis setiap tanggal 1
+                if (subscription.paket === 'Gratis') {
+                    // Jika belum ada field resetMonth, inisialisasi dengan bulan saat ini (tanpa reset)
+                    if (!subscription.resetMonth) {
+                        subscription.resetMonth = currentMonth;
+                        await subscriptionRef.update({ resetMonth: currentMonth });
+                    }
+                    
+                    const isFirstDay = today.getDate() === 1;
+                    const lastResetMonth = subscription.resetMonth;
+                    
+                    if (isFirstDay && lastResetMonth !== currentMonth) {
+                        // Reset kuota ke nilai awal
+                        const updatedData = {
+                            sisaArsip: subscription.kuotaArsip,
+                            sisaGambar: subscription.kuotaGambar,
+                            resetMonth: currentMonth,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        };
+                        await subscriptionRef.update(updatedData);
+                        subscription = { ...subscription, ...updatedData };
+                        showNotification('Kuota paket Gratis telah direset untuk bulan ini', 'info');
+                    }
                 }
                 
+                // Check if subscription has expired
+                if (subscription.berakhir < todayStr) {
+                    // Subscription expired
+                    showNotification('Paket Anda telah berakhir. Silakan perpanjang.', 'error');
+                    subscription.sisaArsip = 0;
+                    subscription.sisaGambar = 0;
+                }
+                
+                userSubscription = subscription;
                 updateQuotaUI();
                 updateSubscriptionUI();
             }
